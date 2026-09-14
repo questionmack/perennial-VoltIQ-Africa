@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perennial — VoltIQ Data Exchange</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface-2: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #2f81f7;
+    --danger: #f85149;
+    --success: #3fb950;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0;
+    padding: 0;
+  }
+  .container { max-width: 900px; margin: 0 auto; padding: 40px 24px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
+  .subtitle { color: var(--text-dim); font-size: 14px; margin: 0 0 32px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 6px; }
+  input {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+    margin-bottom: 16px;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  button:hover { opacity: 0.9; }
+  button.secondary { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
+  button.danger { background: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .error { color: var(--danger); font-size: 13px; margin: -8px 0 16px; }
+  .success-msg { color: var(--success); font-size: 13px; margin: -8px 0 16px; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
+  .badge {
+    display: inline-block;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--text-dim); font-weight: 500; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  .empty-state { color: var(--text-dim); font-size: 14px; text-align: center; padding: 32px 0; }
+  .section-title { font-size: 15px; font-weight: 600; margin: 0 0 16px; }
+  .row { display: flex; gap: 12px; align-items: flex-end; }
+  .row > div { flex: 1; }
+  .hint { font-size: 12px; color: var(--text-dim); margin-top: -12px; margin-bottom: 16px; }
+  .notice {
+    background: rgba(47, 129, 247, 0.1);
+    border: 1px solid rgba(47, 129, 247, 0.3);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 20px;
+  }
+</style>
+</head>
+<body>
+<div class="container" id="app"></div>
+
+<script>
+const API_BASE = 'https://perennial-ingest.momolistic2008.workers.dev';
+
+let state = {
+  token: localStorage.getItem('perennial_token') || null,
+  username: localStorage.getItem('perennial_username') || null,
+  role: localStorage.getItem('perennial_role') || null,
+  discoName: localStorage.getItem('perennial_disco') || null,
+};
+
+function saveSession(data) {
+  state.token = data.token;
+  state.username = data.username;
+  state.role = data.role;
+  state.discoName = data.discoName;
+  localStorage.setItem('perennial_token', data.token);
+  localStorage.setItem('perennial_username', data.username);
+  localStorage.setItem('perennial_role', data.role);
+  localStorage.setItem('perennial_disco', data.discoName || '');
+}
+
+function clearSession() {
+  state = { token: null, username: null, role: null, discoName: null };
+  localStorage.removeItem('perennial_token');
+  localStorage.removeItem('perennial_username');
+  localStorage.removeItem('perennial_role');
+  localStorage.removeItem('perennial_disco');
+}
+
+async function api(path, options = {}) {
+  const headers = options.headers || {};
+  if (state.token && !options.noAuth) {
+    headers['Authorization'] = `Bearer ${state.token}`;
+  }
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function formatDate(iso) {
+  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function renderLogin() {
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <h1>Perennial</h1>
+    <p class="subtitle">Private data exchange for VoltIQ Africa</p>
+    <div class="card" style="max-width:420px;margin:60px auto 0;">
+      <div class="section-title">Sign in</div>
+      <div id="login-error" class="error" style="display:none;"></div>
+      <label for="username">Username</label>
+      <input id="username" type="text" autocomplete="username">
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password">
+      <button id="login-btn" style="width:100%;">Sign in</button>
+    </div>
+  `;
+  document.getElementById('login-btn').onclick = doLogin;
+  document.getElementById('password').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+}
+
+async function doLogin() {
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  if (!username || !password) {
+    errEl.textContent = 'Enter both username and password.';
+    errEl.style.display = 'block';
+    return;
+  }
+  try {
+    const data = await api('/auth/login', {
+      method: 'POST',
+      noAuth: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    saveSession(data);
+    render();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  }
+}
+
+function logout() {
+  clearSession();
+  render();
+}
+
+async function renderDashboard() {
+  const app = document.getElementById('app');
+  const isAdmin = state.role === 'Administrator';
+
+  app.innerHTML = `
+    <div class="topbar">
+      <div>
+        <h1>Perennial</h1>
+        <p class="subtitle" style="margin:0;">
+          Signed in as <strong>${state.username}</strong>
+          ${state.discoName ? `<span class="badge">${state.discoName}</span>` : `<span class="badge">Administrator</span>`}
+        </p>
+      </div>
+      <button class="secondary" id="logout-btn">Sign out</button>
+    </div>
+
+    <div class="notice">
+      ${isAdmin
+        ? 'You can see uploads across all DisCos. DisCo accounts can only see their own.'
+        : 'You can only see and upload your own data. Other DisCos on this system cannot see yours, and you cannot see theirs.'}
+    </div>
+
+    <div class="card">
+      <div class="section-title">Upload a file</div>
+      <div id="upload-error" class="error" style="display:none;"></div>
+      <div id="upload-success" class="success-msg" style="display:none;"></div>
+      <div class="row">
+        ${isAdmin ? `
+        <div>
+          <label for="upload-disco">DisCo name</label>
+          <input id="upload-disco" type="text" placeholder="e.g. KEDCO">
+        </div>` : ''}
+        <div>
+          <label for="upload-period">Period (optional)</label>
+          <input id="upload-period" type="text" placeholder="e.g. 2026-09">
+        </div>
+      </div>
+      <label for="upload-file">File</label>
+      <input id="upload-file" type="file" accept=".csv,.xlsx,.xls">
+      <button id="upload-btn">Upload</button>
+    </div>
+
+    ${isAdmin ? `
+    <div class="card">
+      <div class="section-title">Create a DisCo account</div>
+      <div id="create-error" class="error" style="display:none;"></div>
+      <div id="create-success" class="success-msg" style="display:none;"></div>
+      <div class="row">
+        <div>
+          <label for="new-username">Username</label>
+          <input id="new-username" type="text" placeholder="e.g. kedco">
+        </div>
+        <div>
+          <label for="new-password">Password</label>
+          <input id="new-password" type="text" placeholder="Generate a strong one separately">
+        </div>
+        <div>
+          <label for="new-disco">DisCo name</label>
+          <input id="new-disco" type="text" placeholder="e.g. KEDCO">
+        </div>
+      </div>
+      <button id="create-btn">Create account</button>
+    </div>` : ''}
+
+    <div class="card">
+      <div class="section-title">${isAdmin ? 'All uploads' : 'Your uploads'}</div>
+      <div id="uploads-list"></div>
+    </div>
+  `;
+
+  document.getElementById('logout-btn').onclick = logout;
+  document.getElementById('upload-btn').onclick = doUpload;
+  if (isAdmin) document.getElementById('create-btn').onclick = doCreateDisco;
+
+  await loadUploads();
+}
+
+async function doUpload() {
+  const btn = document.getElementById('upload-btn');
+  const errEl = document.getElementById('upload-error');
+  const okEl = document.getElementById('upload-success');
+  errEl.style.display = 'none';
+  okEl.style.display = 'none';
+
+  const fileInput = document.getElementById('upload-file');
+  const period = document.getElementById('upload-period').value.trim();
+  const discoInput = document.getElementById('upload-disco');
+  const discoName = discoInput ? discoInput.value.trim() : null;
+
+  if (!fileInput.files.length) {
+    errEl.textContent = 'Choose a file first.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (discoInput && !discoName) {
+    errEl.textContent = 'Enter which DisCo this upload is for.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+  if (period) formData.append('period', period);
+  if (discoName) formData.append('discoName', discoName);
+
+  btn.disabled = true;
+  btn.textContent = 'Uploading...';
+  try {
+    await api('/ingest', { method: 'POST', body: formData });
+    okEl.textContent = 'Upload successful.';
+    okEl.style.display = 'block';
+    fileInput.value = '';
+    document.getElementById('upload-period').value = '';
+    if (discoInput) discoInput.value = '';
+    await loadUploads();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Upload';
+  }
+}
+
+async function doCreateDisco() {
+  const btn = document.getElementById('create-btn');
+  const errEl = document.getElementById('create-error');
+  const okEl = document.getElementById('create-success');
+  errEl.style.display = 'none';
+  okEl.style.display = 'none';
+
+  const username = document.getElementById('new-username').value.trim();
+  const password = document.getElementById('new-password').value;
+  const discoName = document.getElementById('new-disco').value.trim();
+
+  if (!username || !password || !discoName) {
+    errEl.textContent = 'Fill in all three fields.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  try {
+    await api('/admin/discos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, discoName }),
+    });
+    okEl.textContent = `Account created for ${discoName}. Share the credentials with them securely — not by email.`;
+    okEl.style.display = 'block';
+    document.getElementById('new-username').value = '';
+    document.getElementById('new-password').value = '';
+    document.getElementById('new-disco').value = '';
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadUploads() {
+  const listEl = document.getElementById('uploads-list');
+  listEl.innerHTML = '<p class="empty-state">Loading...</p>';
+  try {
+    const data = await api('/uploads');
+    if (!data.uploads.length) {
+      listEl.innerHTML = '<p class="empty-state">No uploads yet.</p>';
+      return;
+    }
+    const isAdmin = state.role === 'Administrator';
+    listEl.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            ${isAdmin ? '<th>DisCo</th>' : ''}
+            <th>File</th>
+            <th>Period</th>
+            <th>Size</th>
+            <th>Uploaded</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.uploads.map(u => `
+            <tr>
+              ${isAdmin ? `<td>${u.disco_name}</td>` : ''}
+              <td>${u.original_filename}</td>
+              <td>${u.period || '—'}</td>
+              <td>${formatBytes(u.file_size_bytes)}</td>
+              <td>${formatDate(u.uploaded_at)}</td>
+              <td>${u.status}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch (e) {
+    listEl.innerHTML = `<p class="error">${e.message}</p>`;
+  }
+}
+
+async function render() {
+  if (!state.token) {
+    renderLogin();
+    return;
+  }
+  try {
+    await api('/auth/verify');
+    await renderDashboard();
+  } catch (e) {
+    clearSession();
+    renderLogin();
+  }
+}
+
+render();
+</script>
+</body>
+</html>
