@@ -38,14 +38,13 @@
   h1, h2, .serif { font-family: 'Source Serif 4', Georgia, serif; }
   ::selection { background: var(--copper); color: var(--ink); }
 
-  /* ── Login ─────────────────────────────────────────────────────── */
   .login-screen { display: grid; grid-template-columns: 1.1fr 1fr; min-height: 100vh; }
   @media (max-width: 860px) {
     .login-screen { grid-template-columns: 1fr; }
     .login-hero { display: none; }
   }
   .login-hero {
-    background: linear-gradient(160deg, var(--panel) 0%, var(--ink-2) 100%);
+    background: linear-gradient(160deg, rgba(18, 27, 50, 0.75) 0%, rgba(13, 20, 36, 0.85) 100%);
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -54,7 +53,6 @@
     overflow: hidden;
     border-right: 1px solid var(--line);
   }
-  .login-hero svg { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.4; }
   .hero-mark { font-size: 15px; letter-spacing: 0.02em; color: var(--paper-dim); position: relative; z-index: 1; }
   .hero-line { position: relative; z-index: 1; }
   .hero-line h2 { font-size: 32px; font-weight: 500; line-height: 1.32; margin: 0; max-width: 380px; color: var(--paper); }
@@ -103,7 +101,6 @@
   .msg-error { color: var(--alert); font-size: 13px; margin: -14px 0 20px; }
   .msg-ok { color: var(--verified); font-size: 13px; margin: -14px 0 20px; }
 
-  /* ── Dashboard ─────────────────────────────────────────────────── */
   .app { max-width: 980px; margin: 0 auto; padding: 52px 28px 90px; }
   .app-top {
     display: flex;
@@ -187,9 +184,18 @@
   .badge.parsed .dot { background: var(--verified); }
   .badge.failed { background: rgba(224, 119, 106, 0.12); color: var(--alert); }
   .badge.failed .dot { background: var(--alert); }
+
+  .bg-grid {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    opacity: 0.11;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
+<div class="bg-grid" id="bg-grid"></div>
 <div id="app"></div>
 
 <script>
@@ -248,28 +254,37 @@ function statusBadge(status) {
 }
 
 const gridSVG = `
-<svg viewBox="0 0 500 700" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 1400 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;">
   <g stroke="#d68a2e" stroke-width="1" fill="none">
-    <path d="M40 620 L120 480 L110 320 L200 250 L190 100" />
-    <path d="M120 480 L260 440 L320 300 L280 150" />
-    <path d="M200 250 L340 220 L400 90" />
-    <path d="M110 320 L40 260" />
-    <path d="M320 300 L450 340" />
+    <path d="M40 800 L180 620 L160 400 L320 320 L300 100" />
+    <path d="M180 620 L400 560 L500 380 L440 190" />
+    <path d="M320 320 L560 280 L660 110" />
+    <path d="M160 400 L40 320" />
+    <path d="M500 380 L720 430 L900 340 L980 150" />
+    <path d="M660 110 L840 60" />
+    <path d="M900 340 L1100 400 L1220 250" />
+    <path d="M720 430 L760 620 L620 720" />
+    <path d="M1100 400 L1180 600 L1000 700" />
+    <path d="M980 150 L1150 90 L1330 160" />
   </g>
   <g fill="#e8a33d">
-    <circle cx="40" cy="620" r="4"/><circle cx="120" cy="480" r="4"/><circle cx="110" cy="320" r="4"/>
-    <circle cx="200" cy="250" r="4"/><circle cx="190" cy="100" r="4"/><circle cx="260" cy="440" r="4"/>
-    <circle cx="320" cy="300" r="4"/><circle cx="280" cy="150" r="4"/><circle cx="340" cy="220" r="4"/>
-    <circle cx="400" cy="90" r="4"/><circle cx="40" cy="260" r="4"/><circle cx="450" cy="340" r="4"/>
+    <circle cx="40" cy="800" r="4"/><circle cx="180" cy="620" r="4"/><circle cx="160" cy="400" r="4"/>
+    <circle cx="320" cy="320" r="4"/><circle cx="300" cy="100" r="4"/><circle cx="400" cy="560" r="4"/>
+    <circle cx="500" cy="380" r="4"/><circle cx="440" cy="190" r="4"/><circle cx="560" cy="280" r="4"/>
+    <circle cx="660" cy="110" r="4"/><circle cx="40" cy="320" r="4"/><circle cx="720" cy="430" r="4"/>
+    <circle cx="900" cy="340" r="4"/><circle cx="980" cy="150" r="4"/><circle cx="840" cy="60" r="4"/>
+    <circle cx="1100" cy="400" r="4"/><circle cx="1220" cy="250" r="4"/><circle cx="760" cy="620" r="4"/>
+    <circle cx="620" cy="720" r="4"/><circle cx="1180" cy="600" r="4"/><circle cx="1000" cy="700" r="4"/>
+    <circle cx="1150" cy="90" r="4"/><circle cx="1330" cy="160" r="4"/>
   </g>
 </svg>`;
+document.getElementById('bg-grid').innerHTML = gridSVG;
 
 function renderLogin() {
   const app = document.getElementById('app');
   app.innerHTML = `
     <div class="login-screen">
       <div class="login-hero">
-        ${gridSVG}
         <div class="hero-mark serif">Perennial</div>
         <div class="hero-line">
           <h2>A private line between VoltIQ and the DisCos it works with — not <em>the public cloud.</em></h2>
