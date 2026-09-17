@@ -344,19 +344,20 @@ function logout() {
 async function renderDashboard() {
   const app = document.getElementById('app');
   const isAdmin = state.role === 'Administrator';
+  const canSeeAll = isAdmin || state.role === 'TeamMember';
 
   app.innerHTML = `
     <div class="app">
       <div class="app-top">
         <div>
           <h1 class="wordmark serif">Perennial</h1>
-          <div class="who">${state.username}<span class="stamp">${state.discoName || 'Administrator'}</span></div>
+          <div class="who">${state.username}<span class="stamp">${state.discoName || state.role}</span></div>
         </div>
         <button class="btn btn-ghost" id="logout-btn">Sign out</button>
       </div>
 
       <div class="notice">
-        ${isAdmin
+        ${canSeeAll
           ? 'You can see uploads across every DisCo. Each DisCo account can only ever see its own.'
           : 'You can see and upload only your own data. No other DisCo on this system can see yours, and you cannot see theirs.'}
       </div>
@@ -366,7 +367,7 @@ async function renderDashboard() {
         <div id="upload-error" class="msg-error" style="display:none;"></div>
         <div id="upload-success" class="msg-ok" style="display:none;"></div>
         <div class="field-row">
-          ${isAdmin ? `
+          ${canSeeAll ? `
           <div>
             <label class="field-label" for="upload-disco">DisCo name</label>
             <input id="upload-disco" class="field" type="text" placeholder="e.g. KEDCO">
@@ -401,10 +402,28 @@ async function renderDashboard() {
           </div>
         </div>
         <button id="create-btn" class="btn">Create account</button>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Create a team member account</div>
+        <div id="create-team-error" class="msg-error" style="display:none;"></div>
+        <div id="create-team-success" class="msg-ok" style="display:none;"></div>
+        <p style="font-size:13px;color:var(--paper-dim);margin:-8px 0 20px;">Sees and uploads for every DisCo, like you — but cannot create accounts or delete any DisCo's data.</p>
+        <div class="field-row">
+          <div>
+            <label class="field-label" for="new-team-username">Username</label>
+            <input id="new-team-username" class="field" type="text" placeholder="e.g. bola">
+          </div>
+          <div>
+            <label class="field-label" for="new-team-password">Password</label>
+            <input id="new-team-password" class="field" type="text" placeholder="Generate separately">
+          </div>
+        </div>
+        <button id="create-team-btn" class="btn">Create account</button>
       </div>` : ''}
 
       <div class="panel">
-        <div class="panel-title">${isAdmin ? 'All uploads' : 'Your uploads'}</div>
+        <div class="panel-title">${canSeeAll ? 'All uploads' : 'Your uploads'}</div>
         <div id="uploads-list"></div>
       </div>
     </div>
@@ -412,7 +431,10 @@ async function renderDashboard() {
 
   document.getElementById('logout-btn').onclick = logout;
   document.getElementById('upload-btn').onclick = doUpload;
-  if (isAdmin) document.getElementById('create-btn').onclick = doCreateDisco;
+  if (isAdmin) {
+    document.getElementById('create-btn').onclick = doCreateDisco;
+    document.getElementById('create-team-btn').onclick = doCreateTeamMember;
+  }
 
   await loadUploads();
 }
@@ -501,6 +523,41 @@ async function doCreateDisco() {
   }
 }
 
+async function doCreateTeamMember() {
+  const btn = document.getElementById('create-team-btn');
+  const errEl = document.getElementById('create-team-error');
+  const okEl = document.getElementById('create-team-success');
+  errEl.style.display = 'none';
+  okEl.style.display = 'none';
+
+  const username = document.getElementById('new-team-username').value.trim();
+  const password = document.getElementById('new-team-password').value;
+
+  if (!username || !password) {
+    errEl.textContent = 'Fill in both fields.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  try {
+    await api('/admin/team', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    okEl.textContent = `Team account created for ${username}. Share the credentials with them directly — not by email.`;
+    okEl.style.display = 'block';
+    document.getElementById('new-team-username').value = '';
+    document.getElementById('new-team-password').value = '';
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function loadUploads() {
   const listEl = document.getElementById('uploads-list');
   listEl.innerHTML = '<p class="empty">Loading…</p>';
@@ -510,12 +567,12 @@ async function loadUploads() {
       listEl.innerHTML = '<p class="empty">Nothing uploaded yet.</p>';
       return;
     }
-    const isAdmin = state.role === 'Administrator';
+    const showDiscoColumn = state.role === 'Administrator' || state.role === 'TeamMember';
     listEl.innerHTML = `
       <table>
         <thead>
           <tr>
-            ${isAdmin ? '<th>DisCo</th>' : ''}
+            ${showDiscoColumn ? '<th>DisCo</th>' : ''}
             <th>File</th>
             <th>Period</th>
             <th>Size</th>
@@ -526,7 +583,7 @@ async function loadUploads() {
         <tbody>
           ${data.uploads.map(u => `
             <tr>
-              ${isAdmin ? `<td>${u.disco_name}</td>` : ''}
+              ${showDiscoColumn ? `<td>${u.disco_name}</td>` : ''}
               <td>${u.original_filename}</td>
               <td>${u.period || '—'}</td>
               <td>${formatBytes(u.file_size_bytes)}</td>
