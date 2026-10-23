@@ -193,6 +193,8 @@
     pointer-events: none;
   }
 </style>
+<!-- SheetJS: parse .xlsx/.xls in-browser so PII columns can be dropped before upload -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 <div class="bg-grid" id="bg-grid"></div>
@@ -439,6 +441,61 @@ async function renderDashboard() {
   await loadUploads();
 }
 
+// ── Client-side PII strip ───────────────────────────────────────────────
+// Customer names, addresses, phone, email, BVN and NIN must NEVER reach
+// VoltIQ servers (NDPA 2023 / signed DisCo data-protection terms). We drop
+// those columns in the browser and upload only meter/account IDs plus
+// consumption and billing data. This is privacy-by-default, NOT a security
+// control — the authoritative strip must also run server-side in the
+// perennial-ingest worker, because a client can bypass this path.
+// Meter IDs are kept as exact text so leading zeros survive.
+const PII_HEADER_RE = /(customer|account.?holder|full.?name|^\s*name\s*$|surname|first.?name|last.?name|address|street|house.?no|^\s*phone|mobile|^\s*tel\b|contact.?no|e.?mail|\bbvn\b|\bnin\b)/i;
+
+// Minimal quoted-CSV parser → array of string rows (preserves leading zeros).
+function parseCsvText(text) {
+  const rows = []; let row = [], field = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+      else field += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+    else if (c === '\r') { /* skip */ }
+    else field += c;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(v => String(v).trim() !== ''));
+}
+
+function csvEscape(v) {
+  const s = String(v == null ? '' : v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+async function stripPII(file) {
+  const outName = file.name.replace(/\.(csv|xlsx|xls)$/i, '') + '_noPII.csv';
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  let all;
+  if (ext === 'csv') {
+    all = parseCsvText(await file.text());
+  } else {
+    if (typeof XLSX === 'undefined') throw new Error('Spreadsheet reader not loaded — refresh and retry.');
+    const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    all = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '', blankrows: false });
+  }
+  if (!all.length) throw new Error('File is empty or unreadable.');
+  const header = all[0];
+  const keep = header.map(h => !PII_HEADER_RE.test(String(h || '').trim()));
+  const dropped = header.filter((_, i) => !keep[i]);
+  const pick = r => r.filter((_, i) => keep[i]);
+  const csv = [pick(header), ...all.slice(1).map(pick)]
+    .map(r => r.map(csvEscape).join(',')).join('\r\n');
+  return { file: new File([csv], outName, { type: 'text/csv' }), dropped };
+}
+
 async function doUpload() {
   const btn = document.getElementById('upload-btn');
   const errEl = document.getElementById('upload-error');
@@ -462,8 +519,20 @@ async function doUpload() {
     return;
   }
 
+  // Strip PII columns in the browser BEFORE building the upload.
+  let cleaned;
+  try {
+    cleaned = await stripPII(fileInput.files[0]);
+  } catch (e) {
+    errEl.textContent = 'Could not remove PII before upload: ' + e.message;
+    errEl.style.display = 'block';
+    return;
+  }
+
   const formData = new FormData();
-  formData.append('file', fileInput.files[0]);
+  formData.append('file', cleaned.file);
+  formData.append('piiStripped', 'true');
+  if (cleaned.dropped.length) formData.append('droppedColumns', cleaned.dropped.join('|'));
   if (period) formData.append('period', period);
   if (discoName) formData.append('discoName', discoName);
 
@@ -471,7 +540,9 @@ async function doUpload() {
   btn.textContent = 'Uploading…';
   try {
     await api('/ingest', { method: 'POST', body: formData });
-    okEl.textContent = 'Upload received.';
+    okEl.textContent = cleaned.dropped.length
+      ? 'Upload received. Personal-data columns removed before upload: ' + cleaned.dropped.join(', ')
+      : 'Upload received. No personal-data columns were detected to remove.';
     okEl.style.display = 'block';
     fileInput.value = '';
     document.getElementById('upload-period').value = '';
