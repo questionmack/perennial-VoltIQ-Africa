@@ -649,6 +649,7 @@ async function loadUploads() {
             <th>Size</th>
             <th>Uploaded</th>
             <th>Status</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -660,6 +661,7 @@ async function loadUploads() {
               <td>${formatBytes(u.file_size_bytes)}</td>
               <td>${formatDate(u.uploaded_at)}</td>
               <td>${statusBadge(u.status)}</td>
+              <td><a href="#" onclick="downloadUpload('${u.id}'); return false;" style="color:#e8a44c;font-weight:600;text-decoration:none;">Download</a></td>
             </tr>
           `).join('')}
         </tbody>
@@ -667,6 +669,21 @@ async function loadUploads() {
     `;
   } catch (e) {
     listEl.innerHTML = `<p class="msg-error">${e.message}</p>`;
+  }
+}
+
+async function downloadUpload(id) {
+  try {
+    const data = await api('/download?id=' + encodeURIComponent(id));
+    if (!data.url) throw new Error('No download URL returned');
+    const a = document.createElement('a');
+    a.href = data.url;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (e) {
+    alert('Download failed: ' + e.message);
   }
 }
 
